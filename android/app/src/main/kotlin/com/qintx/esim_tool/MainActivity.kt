@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.CalendarContract
 import android.telephony.SubscriptionInfo
@@ -19,8 +20,14 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "esim_tool/installed_esim_discovery"
     private val calendarChannelName = "esim_tool/calendar"
+    private val jsonFileChannelName = "esim_tool/json_file_transfer"
     private val phoneStateRequestCode = 2401
+    private val importJsonRequestCode = 2402
+    private val exportJsonRequestCode = 2403
     private var pendingDiscoveryResult: MethodChannel.Result? = null
+    private var pendingImportJsonResult: MethodChannel.Result? = null
+    private var pendingExportJsonResult: MethodChannel.Result? = null
+    private var pendingExportJsonContent: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -35,6 +42,99 @@ class MainActivity : FlutterActivity() {
                 "addExpiryEvent" -> addExpiryEvent(call.arguments as? Map<*, *>, result)
                 else -> result.notImplemented()
             }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, jsonFileChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "importJsonFile" -> importJsonFile(result)
+                "exportJsonFile" -> exportJsonFile(call.arguments as? Map<*, *>, result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun importJsonFile(result: MethodChannel.Result) {
+        if (pendingImportJsonResult != null) {
+            result.error("busy", "已有一个 JSON 导入请求正在进行", null)
+            return
+        }
+        pendingImportJsonResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/*", "*/*"))
+        }
+        try {
+            startActivityForResult(intent, importJsonRequestCode)
+        } catch (error: Exception) {
+            pendingImportJsonResult = null
+            result.error("open_failed", error.localizedMessage, null)
+        }
+    }
+
+    private fun exportJsonFile(arguments: Map<*, *>?, result: MethodChannel.Result) {
+        if (pendingExportJsonResult != null) {
+            result.error("busy", "已有一个 JSON 导出请求正在进行", null)
+            return
+        }
+        val json = arguments?.get("json") as? String
+        if (json.isNullOrBlank()) {
+            result.success(false)
+            return
+        }
+        val fileName = arguments?.get("fileName") as? String ?: "esim-profiles.json"
+        pendingExportJsonResult = result
+        pendingExportJsonContent = json
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, fileName)
+        }
+        try {
+            startActivityForResult(intent, exportJsonRequestCode)
+        } catch (error: Exception) {
+            pendingExportJsonResult = null
+            pendingExportJsonContent = null
+            result.error("create_failed", error.localizedMessage, null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            importJsonRequestCode -> handleImportJsonResult(resultCode, data?.data)
+            exportJsonRequestCode -> handleExportJsonResult(resultCode, data?.data)
+        }
+    }
+
+    private fun handleImportJsonResult(resultCode: Int, uri: Uri?) {
+        val result = pendingImportJsonResult ?: return
+        pendingImportJsonResult = null
+        if (resultCode != RESULT_OK || uri == null) {
+            result.success(null)
+            return
+        }
+        try {
+            val json = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            result.success(json)
+        } catch (error: Exception) {
+            result.error("read_failed", error.localizedMessage, null)
+        }
+    }
+
+    private fun handleExportJsonResult(resultCode: Int, uri: Uri?) {
+        val result = pendingExportJsonResult ?: return
+        val json = pendingExportJsonContent
+        pendingExportJsonResult = null
+        pendingExportJsonContent = null
+        if (resultCode != RESULT_OK || uri == null || json == null) {
+            result.success(false)
+            return
+        }
+        try {
+            contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(json) }
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("write_failed", error.localizedMessage, null)
         }
     }
 

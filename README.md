@@ -19,6 +19,27 @@ build/app/outputs/flutter-apk/app-release.apk
 
 当前 release 构建使用 Android debug signing config，适合个人测试和临时安装，不适合作为正式上架签名包。
 
+## 整表导入 / 导出
+
+首页右上角「导入导出」入口支持：
+
+- 查看/复制整表 JSON 字符串，适合复制到编辑器里快速批量修改。
+- 从 JSON 字符串导入，导入后会替换当前整个 eSIM 列表。
+- 导出 JSON 文件，通过 Android 文件保存器生成 `.json` 文件。
+- 导入 JSON 文件，通过 Android 文件选择器读取 `.json` 文件后替换整个列表。
+
+导出的 JSON 顶层格式为：
+
+```json
+{
+  "schema": "esim_tool_profiles_v1",
+  "exportedAt": "2026-06-23T00:00:00.000Z",
+  "profiles": []
+}
+```
+
+导入时也支持直接粘贴 `profiles` 数组。
+
 ## 发布 APK 到 GitHub Release
 
 仓库已配置 GitHub Actions：

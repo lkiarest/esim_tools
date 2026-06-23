@@ -7,6 +7,8 @@ import 'repositories/esim_profile_repository.dart';
 import 'services/esim_reminder_scheduler.dart';
 import 'services/installed_esim_discovery.dart';
 import 'services/esim_calendar_service.dart';
+import 'services/esim_json_file_transfer.dart';
+import 'services/esim_profile_json_codec.dart';
 
 typedef QrCodeScanner = Future<String?> Function(BuildContext context);
 
@@ -66,6 +68,7 @@ class EsimHomePage extends StatefulWidget {
 
 class _EsimHomePageState extends State<EsimHomePage> {
   final List<EsimProfile> _profiles = <EsimProfile>[];
+  final EsimJsonFileTransfer _jsonFileTransfer = const EsimJsonFileTransfer();
   EsimProfileRepository? _repository;
   late final EsimReminderCoordinator _reminderCoordinator;
   bool _discovering = false;
@@ -117,6 +120,164 @@ class _EsimHomePageState extends State<EsimHomePage> {
     setState(() => _profiles.removeWhere((item) => item.id == profile.id));
     await _persistProfiles();
     _showSnackBar('已删除 ${profile.name}');
+  }
+
+  Future<void> _replaceAllProfiles(List<EsimProfile> profiles) async {
+    setState(() {
+      _profiles
+        ..clear()
+        ..addAll(profiles);
+    });
+    await _persistProfiles();
+  }
+
+  String _profilesAsJson() => EsimProfileJsonCodec.encode(_profiles);
+
+  Future<void> _showImportExportMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.content_copy_outlined),
+              title: const Text('查看/复制 JSON 字符串'),
+              subtitle: const Text('适合直接复制、粘贴到编辑器批量修改'),
+              onTap: () {
+                Navigator.pop(context);
+                _showJsonExportDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.paste_outlined),
+              title: const Text('从 JSON 字符串导入'),
+              subtitle: const Text('粘贴编辑后的 JSON，替换整个列表'),
+              onTap: () {
+                Navigator.pop(context);
+                _showJsonImportDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_upload_outlined),
+              title: const Text('导出 JSON 文件'),
+              subtitle: const Text('保存为 .json 文件，方便在电脑上编辑'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportJsonFile();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_download_outlined),
+              title: const Text('导入 JSON 文件'),
+              subtitle: const Text('选择 .json 文件并替换整个列表'),
+              onTap: () {
+                Navigator.pop(context);
+                _importJsonFile();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showJsonExportDialog() async {
+    final json = _profilesAsJson();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('整表 JSON'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(json),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: json));
+              if (!context.mounted) return;
+              Navigator.of(context).pop();
+              _showSnackBar('已复制 JSON 字符串');
+            },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('复制 JSON'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showJsonImportDialog({String? initialJson}) async {
+    final controller = TextEditingController(text: initialJson ?? '');
+    String? errorText;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('导入整表 JSON'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: TextField(
+              controller: controller,
+              minLines: 8,
+              maxLines: 16,
+              decoration: InputDecoration(
+                labelText: '粘贴 JSON 字符串',
+                helperText: '支持导出的对象格式，也支持直接粘贴 profiles 数组。导入会替换整个列表。',
+                errorText: errorText,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  final imported = EsimProfileJsonCodec.decode(controller.text);
+                  await _replaceAllProfiles(imported);
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop();
+                  _showSnackBar('已导入 ${imported.length} 条记录');
+                } on FormatException catch (error) {
+                  setDialogState(() => errorText = error.message);
+                }
+              },
+              child: const Text('替换整个列表'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportJsonFile() async {
+    final fileName = 'esim-profiles-${DateTime.now().toIso8601String().substring(0, 10)}.json';
+    final exported = await _jsonFileTransfer.exportJsonFile(
+      _profilesAsJson(),
+      fileName: fileName,
+    );
+    _showSnackBar(exported ? '已导出 JSON 文件' : '当前平台未完成文件导出，可先复制 JSON 字符串');
+  }
+
+  Future<void> _importJsonFile() async {
+    final json = await _jsonFileTransfer.importJsonFile();
+    if (json == null || json.trim().isEmpty) {
+      _showSnackBar('没有选择 JSON 文件');
+      return;
+    }
+    await _showJsonImportDialog(initialJson: json);
   }
 
   Future<void> _discoverInstalledEsims() async {
@@ -252,6 +413,11 @@ class _EsimHomePageState extends State<EsimHomePage> {
       appBar: AppBar(
         title: const Text('eSIM 管家'),
         actions: <Widget>[
+          IconButton(
+            tooltip: '导入导出',
+            onPressed: _showImportExportMenu,
+            icon: const Icon(Icons.import_export),
+          ),
           IconButton(
             tooltip: '自动获取已安装 eSIM',
             onPressed: _discovering ? null : _discoverInstalledEsims,

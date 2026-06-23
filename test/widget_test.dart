@@ -205,6 +205,70 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString(EsimProfileRepository.storageKey), isNull);
   });
+
+  testWidgets('JSON string import replaces the whole profile list and persists', (
+    tester,
+  ) async {
+    final oldProfile = _profile(name: '旧列表卡');
+    final importedProfile = _profile(name: '导入日本卡');
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EsimProfileRepository.storageKey: jsonEncode(<Object?>[oldProfile.toJson()]),
+    });
+
+    await tester.pumpWidget(
+      EsimToolApp(
+        sensitiveStore: InMemorySensitiveProfileStore(),
+        reminderNotifier: const NoopEsimReminderNotifier(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('导入导出'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从 JSON 字符串导入'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, '粘贴 JSON 字符串'),
+      jsonEncode(<String, Object?>{
+        'schema': 'esim_tool_profiles_v1',
+        'profiles': <Object?>[importedProfile.toJson()],
+      }),
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '替换整个列表'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('旧列表卡'), findsNothing);
+    expect(find.text('导入日本卡'), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getString(EsimProfileRepository.storageKey),
+      contains('导入日本卡'),
+    );
+  });
+
+  testWidgets('JSON export string can be copied and edited', (tester) async {
+    final profile = _profile(name: '可导出卡');
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EsimProfileRepository.storageKey: jsonEncode(<Object?>[profile.toJson()]),
+    });
+
+    await tester.pumpWidget(
+      EsimToolApp(
+        sensitiveStore: InMemorySensitiveProfileStore(),
+        reminderNotifier: const NoopEsimReminderNotifier(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('导入导出'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('查看/复制 JSON 字符串'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('整表 JSON'), findsOneWidget);
+    expect(find.textContaining('esim_tool_profiles_v1'), findsOneWidget);
+    expect(find.textContaining('可导出卡'), findsAtLeastNWidgets(1));
+  });
 }
 
 class InMemorySensitiveProfileStore implements SensitiveProfileStore {
