@@ -39,7 +39,8 @@ cat > "$DIST_DIR/release-notes-${TAG}.md" <<EOF
 Android APK for eSIM Tool.
 
 - Build variant: release
-- Signing: Android debug signing config, for ad-hoc testing/install only
+- Signing: Android debug signing config with v2/v3 signatures, for ad-hoc testing/install only
+- Install note: if an older test build was installed from a previous GitHub Action release, uninstall it once first because those old builds used a different temporary debug certificate
 - Source tag: ${TAG}
 EOF
 
