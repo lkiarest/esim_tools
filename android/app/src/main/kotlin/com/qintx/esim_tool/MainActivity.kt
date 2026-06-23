@@ -1,0 +1,212 @@
+package com.qintx.esim_tool
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.CalendarContract
+import android.telephony.SubscriptionInfo
+import android.telephony.SubscriptionManager
+import android.telephony.euicc.EuiccManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+    private val channelName = "esim_tool/installed_esim_discovery"
+    private val calendarChannelName = "esim_tool/calendar"
+    private val phoneStateRequestCode = 2401
+    private var pendingDiscoveryResult: MethodChannel.Result? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "discoverInstalledEsims" -> discoverInstalledEsims(result)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, calendarChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "addExpiryEvent" -> addExpiryEvent(call.arguments as? Map<*, *>, result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+
+    private fun addExpiryEvent(arguments: Map<*, *>?, result: MethodChannel.Result) {
+        val profileName = arguments?.get("profileName") as? String ?: "eSIM"
+        val expiryDateMillis = arguments?.get("expiryDateMillis") as? Long
+        if (expiryDateMillis == null) {
+            result.success(false)
+            return
+        }
+        val beginTime = expiryDateMillis + 9L * 60L * 60L * 1000L
+        val endTime = beginTime + 30L * 60L * 1000L
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            data = CalendarContract.Events.CONTENT_URI
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTime)
+            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTime)
+            putExtra(CalendarContract.Events.TITLE, "$profileName eSIM 到期")
+            putExtra(CalendarContract.Events.DESCRIPTION, "这张 eSIM 今天到期，记得续费、切换套餐或准备备用网络。")
+            putExtra(CalendarContract.Events.ALL_DAY, false)
+        }
+        return try {
+            startActivity(intent)
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun discoverInstalledEsims(result: MethodChannel.Result) {
+        if (!hasPhoneStatePermission()) {
+            pendingDiscoveryResult = result
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.READ_PHONE_STATE),
+                phoneStateRequestCode,
+            )
+            return
+        }
+        result.success(buildDiscoveryResult())
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != phoneStateRequestCode) return
+
+        val result = pendingDiscoveryResult ?: return
+        pendingDiscoveryResult = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            result.success(buildDiscoveryResult())
+        } else {
+            result.success(
+                mapOf(
+                    "supported" to supportsEsim(),
+                    "permissionGranted" to false,
+                    "failureReason" to "permissionDenied",
+                    "note" to "没有电话状态权限，无法自动读取系统可见的 SIM/eSIM 信息。",
+                    "profiles" to emptyList<Map<String, Any?>>()
+                )
+            )
+        }
+    }
+
+    private fun hasPhoneStatePermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_PHONE_STATE,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun supportsEsim(): Boolean {
+        val euiccManager = getSystemService(Context.EUICC_SERVICE) as? EuiccManager
+        return euiccManager?.isEnabled == true
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun buildDiscoveryResult(): Map<String, Any?> {
+        val supportsEsim = supportsEsim()
+        val subscriptionManager = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+        val activeSubscriptions = try {
+            subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
+        } catch (securityException: SecurityException) {
+            return mapOf(
+                "supported" to supportsEsim,
+                "permissionGranted" to false,
+                "failureReason" to "permissionDenied",
+                "note" to "系统拒绝读取 SIM/eSIM 信息：${securityException.localizedMessage}",
+                "profiles" to emptyList<Map<String, Any?>>()
+            )
+        }
+        val availableSubscriptions = subscriptionManager?.bestEffortInactiveSubscriptions()
+            ?: emptyList()
+
+        val activeIds = activeSubscriptions.map { it.subscriptionId }.toSet()
+        val mergedSubscriptions = (activeSubscriptions + availableSubscriptions)
+            .distinctBy { subscription -> subscription.uniqueKey() }
+        val profiles = mergedSubscriptions.map { subscription ->
+            subscription.toProfileMap(isActive = activeIds.contains(subscription.subscriptionId))
+        }
+        val inactiveCount = profiles.count { it["isActive"] == false }
+        val note = when {
+            profiles.isNotEmpty() && inactiveCount > 0 -> "已尝试读取当前启用和系统可返回的未启用蜂窝套餐；未启用 eSIM 受系统限制，可能仍不完整。"
+            profiles.isNotEmpty() -> "已尝试读取启用套餐和可用套餐；本机系统未返回未启用 eSIM，可能是系统限制。"
+            !supportsEsim -> "当前设备或系统未报告 eSIM 支持。"
+            else -> "系统没有返回可见的 SIM/eSIM 套餐，可能没有权限、没有启用蜂窝套餐，或 eSIM 处于停用状态且系统不开放。"
+        }
+        return mapOf(
+            "supported" to supportsEsim,
+            "permissionGranted" to true,
+            "failureReason" to if (profiles.isEmpty()) "noProfilesFound" else null,
+            "note" to note,
+            "profiles" to profiles,
+        )
+    }
+
+    @SuppressLint("HardwareIds")
+    private fun SubscriptionInfo.toProfileMap(isActive: Boolean): Map<String, Any?> {
+        val embedded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) isEmbedded else null
+        val confidence = when (embedded) {
+            true -> "high"
+            false -> "medium"
+            null -> "medium"
+        }
+        return mapOf(
+            "carrierName" to carrierName?.toString(),
+            "displayName" to displayName?.toString(),
+            "countryIso" to countryIso,
+            "mobileCountryCode" to mccCompat(),
+            "mobileNetworkCode" to mncCompat(),
+            "phoneNumber" to number.takeIf { it.isNotBlank() },
+            "iccid" to iccId.takeIf { it.isNotBlank() },
+            "isEmbedded" to embedded,
+            "isActive" to isActive,
+            "platform" to "android",
+            "confidence" to confidence,
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun SubscriptionManager.bestEffortInactiveSubscriptions(): List<SubscriptionInfo> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        return listOf("getAvailableSubscriptionInfoList", "getAccessibleSubscriptionInfoList")
+            .asSequence()
+            .mapNotNull { methodName ->
+                try {
+                    javaClass.getMethod(methodName).invoke(this) as? List<SubscriptionInfo>
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            .firstOrNull()
+            ?: emptyList()
+    }
+
+    private fun SubscriptionInfo.uniqueKey(): String {
+        return listOfNotNull(
+            iccId.takeIf { it.isNotBlank() },
+            subscriptionId.toString(),
+            displayName?.toString(),
+            carrierName?.toString(),
+        ).joinToString("|")
+    }
+
+    private fun SubscriptionInfo.mccCompat(): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) mccString else mcc.toString().takeIf { it != "0" }
+    }
+
+    private fun SubscriptionInfo.mncCompat(): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) mncString else mnc.toString().takeIf { it != "0" }
+    }
+}

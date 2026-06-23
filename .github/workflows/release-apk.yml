@@ -1,0 +1,81 @@
+name: Build Android APK Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update, e.g. v1.0.0-20260623'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.5'
+          cache: true
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            VERSION="$(python3 -c "from pathlib import Path; import re; text=Path('pubspec.yaml').read_text(); m=re.search(r'^version:\\s*([^+\\s]+)', text, re.M); print(m.group(1) if m else '0.0.0')")"
+            TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "apk_name=esim-tool-${TAG}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${{ steps.tag.outputs.apk_name }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: eSIM Tool ${{ steps.tag.outputs.tag }}
+          make_latest: true
+          files: dist/${{ steps.tag.outputs.apk_name }}
+          body: |
+            Android APK for eSIM Tool.
+
+            - Build variant: release
+            - Signing: Android debug signing config, for ad-hoc testing/install only
+            - Download the APK asset below and install it on Android.
