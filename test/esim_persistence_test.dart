@@ -15,16 +15,13 @@ void main() {
       rawActivationCode: r'LPA:1$smdp.example.com$MATCHING-ID',
       smdpAddress: 'smdp.example.com',
       matchingId: 'MATCHING-ID',
-      dataLimitMb: 10240,
-      usedDataMb: 2048,
-      activationDate: DateTime.utc(2026, 6, 1),
-      expiryDate: DateTime.utc(2026, 6, 8),
+      lastServiceDate: DateTime.utc(2026, 1, 15),
+      serviceIntervalMonths: 6,
+      serviceReminderEnabled: true,
       status: EsimProfileStatus.installed,
       source: EsimProfileSource.manualInstalled,
       isCurrentlyActive: true,
-      deviceName: '小秦的 iPhone',
-      devicePlatform: 'ios',
-      note: '机场落地后启用',
+      note: '每 6 个月消费一次保号',
       createdAt: DateTime.utc(2026, 5, 31),
       updatedAt: DateTime.utc(2026, 6, 2),
     );
@@ -37,9 +34,9 @@ void main() {
     expect(restored.phoneNumber, profile.phoneNumber);
     expect(restored.iccid, profile.iccid);
     expect(restored.rawActivationCode, profile.rawActivationCode);
-    expect(restored.dataLimitMb, profile.dataLimitMb);
-    expect(restored.usedDataMb, profile.usedDataMb);
-    expect(restored.expiryDate, profile.expiryDate);
+    expect(restored.lastServiceDate, profile.lastServiceDate);
+    expect(restored.serviceIntervalMonths, profile.serviceIntervalMonths);
+    expect(restored.serviceReminderEnabled, isTrue);
     expect(restored.status, profile.status);
     expect(restored.source, profile.source);
     expect(restored.isCurrentlyActive, isTrue);
@@ -89,15 +86,12 @@ void main() {
         rawActivationCode: r'LPA:1$smdp.example.com$SECRET-MATCHING-ID',
         smdpAddress: 'smdp.example.com',
         matchingId: 'SECRET-MATCHING-ID',
-        dataLimitMb: null,
-        usedDataMb: null,
-        activationDate: null,
-        expiryDate: null,
+        lastServiceDate: null,
+        serviceIntervalMonths: 6,
+        serviceReminderEnabled: false,
         status: EsimProfileStatus.notInstalled,
         source: EsimProfileSource.qrCode,
         isCurrentlyActive: false,
-        deviceName: null,
-        devicePlatform: null,
         note: null,
         createdAt: DateTime.utc(2026, 6, 1),
         updatedAt: DateTime.utc(2026, 6, 1),

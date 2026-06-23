@@ -4,45 +4,43 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('EsimReminderPlanner', () {
-    test('plans configurable expiry reminder before expiry', () {
+    test('plans keep-alive consumption reminder every configured months', () {
       final now = DateTime(2026, 6, 22, 9);
       final profile = _profile(
-        expiryDate: DateTime(2026, 6, 25),
-        dataLimitMb: 10240,
-        usedDataMb: 1000,
+        lastServiceDate: DateTime(2026, 1, 15),
+        serviceIntervalMonths: 6,
       );
-
-      final reminders = EsimReminderPlanner.planForProfile(profile, now: now);
-
-      expect(reminders.map((reminder) => reminder.type), <EsimReminderType>[
-        EsimReminderType.expiryThreeDays,
-      ]);
-      expect(reminders.single.fireAt, DateTime(2026, 6, 22, 9));
-      expect(reminders.single.title, '日本 7 天卡 3 天后到期');
-    });
-
-    test('does not plan reminders in the past or for archived profiles', () {
-      final now = DateTime(2026, 6, 22, 9);
-      final expired = _profile(expiryDate: DateTime(2026, 6, 20));
-      final archived = _profile(
-        expiryDate: DateTime(2026, 6, 25),
-        status: EsimProfileStatus.archived,
-      );
-
-      expect(EsimReminderPlanner.planForProfile(expired, now: now), isEmpty);
-      expect(EsimReminderPlanner.planForProfile(archived, now: now), isEmpty);
-    });
-
-    test('plans low data reminder once when usage reaches 90 percent', () {
-      final now = DateTime(2026, 6, 22, 9);
-      final profile = _profile(dataLimitMb: 10240, usedDataMb: 9300);
 
       final reminders = EsimReminderPlanner.planForProfile(profile, now: now);
 
       expect(reminders, hasLength(1));
-      expect(reminders.single.type, EsimReminderType.lowData);
+      expect(reminders.single.type, EsimReminderType.keepAliveConsumption);
+      expect(reminders.single.fireAt, DateTime(2026, 7, 15, 9));
+      expect(reminders.single.title, '日本保号卡 该消费保号了');
+      expect(reminders.single.body, contains('每 6 个月'));
+    });
+
+    test('plans immediate keep-alive reminder when consumption is overdue', () {
+      final now = DateTime(2026, 8, 1, 10, 30);
+      final profile = _profile(
+        lastServiceDate: DateTime(2026, 1, 15),
+        serviceIntervalMonths: 6,
+      );
+
+      final reminders = EsimReminderPlanner.planForProfile(profile, now: now);
+
+      expect(reminders, hasLength(1));
       expect(reminders.single.fireAt, now);
-      expect(reminders.single.body, contains('剩余不足 10%'));
+      expect(reminders.single.body, contains('已经到了保号消费时间'));
+    });
+
+    test('does not plan reminders when keep-alive is disabled or archived', () {
+      final now = DateTime(2026, 8, 1, 9);
+      final disabled = _profile(serviceReminderEnabled: false);
+      final archived = _profile(status: EsimProfileStatus.archived);
+
+      expect(EsimReminderPlanner.planForProfile(disabled, now: now), isEmpty);
+      expect(EsimReminderPlanner.planForProfile(archived, now: now), isEmpty);
     });
   });
 
@@ -52,21 +50,23 @@ void main() {
       final coordinator = EsimReminderCoordinator(notifier: notifier);
       final profiles = <EsimProfile>[
         _profile(
-          id: 'trip-a',
-          expiryDate: DateTime(2026, 6, 25),
-          dataLimitMb: 10240,
-          usedDataMb: 9500,
+          id: 'keep-a',
+          lastServiceDate: DateTime(2026, 1, 15),
+          serviceIntervalMonths: 6,
         ),
-        _profile(id: 'trip-b', expiryDate: DateTime(2026, 7, 1)),
+        _profile(
+          id: 'keep-b',
+          lastServiceDate: DateTime(2026, 2, 1),
+          serviceIntervalMonths: 6,
+        ),
       ];
 
       await coordinator.rescheduleAll(profiles, now: DateTime(2026, 6, 22, 9));
 
       expect(notifier.cancelled, isTrue);
       expect(notifier.scheduled.map((reminder) => reminder.profileId), <String>[
-        'trip-a',
-        'trip-a',
-        'trip-b',
+        'keep-a',
+        'keep-b',
       ]);
     });
   });
@@ -92,14 +92,14 @@ class RecordingEsimReminderNotifier implements EsimReminderNotifier {
 
 EsimProfile _profile({
   String id = 'manual-1',
-  DateTime? expiryDate,
-  int? dataLimitMb,
-  int? usedDataMb,
+  DateTime? lastServiceDate,
+  int? serviceIntervalMonths = 6,
+  bool serviceReminderEnabled = true,
   EsimProfileStatus status = EsimProfileStatus.installed,
 }) {
   return EsimProfile(
     id: id,
-    name: '日本 7 天卡',
+    name: '日本保号卡',
     carrierName: 'Ubigi',
     countryOrRegion: 'JP',
     phoneNumber: null,
@@ -107,15 +107,12 @@ EsimProfile _profile({
     rawActivationCode: null,
     smdpAddress: null,
     matchingId: null,
-    dataLimitMb: dataLimitMb,
-    usedDataMb: usedDataMb,
-    activationDate: null,
-    expiryDate: expiryDate,
+    lastServiceDate: lastServiceDate,
+    serviceIntervalMonths: serviceIntervalMonths,
+    serviceReminderEnabled: serviceReminderEnabled,
     status: status,
     source: EsimProfileSource.manualInstalled,
     isCurrentlyActive: false,
-    deviceName: null,
-    devicePlatform: null,
     note: null,
     createdAt: DateTime.utc(2026, 6, 1),
     updatedAt: DateTime.utc(2026, 6, 1),

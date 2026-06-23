@@ -7,7 +7,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/esim_profile.dart';
 
-enum EsimReminderType { expiryThreeDays, expiryOneDay, lowData }
+enum EsimReminderType { keepAliveConsumption }
 
 class EsimReminder {
   const EsimReminder({
@@ -56,9 +56,9 @@ class FlutterLocalEsimReminderNotifier implements EsimReminderNotifier {
 
   static const NotificationDetails _notificationDetails = NotificationDetails(
     android: AndroidNotificationDetails(
-      'esim_tool_reminders',
-      'eSIM 提醒',
-      channelDescription: 'eSIM 到期和流量不足提醒',
+      'esim_tool_keep_alive_reminders',
+      'eSIM 保号提醒',
+      channelDescription: 'eSIM 定期消费保号提醒',
       importance: Importance.high,
       priority: Priority.high,
     ),
@@ -171,67 +171,33 @@ class EsimReminderPlanner {
     required DateTime now,
   }) {
     if (profile.status == EsimProfileStatus.archived ||
-        profile.effectiveStatus(now) == EsimProfileStatus.expired) {
+        !profile.serviceReminderEnabled) {
       return const <EsimReminder>[];
     }
+    final nextServiceDate = profile.nextServiceDate;
+    final months = profile.serviceIntervalMonths;
+    if (nextServiceDate == null || months == null) return const <EsimReminder>[];
 
-    final reminders = <EsimReminder>[];
-    final expiryDate = profile.expiryDate;
-    final reminderDaysBefore = profile.reminderDaysBefore;
-    if (expiryDate != null && reminderDaysBefore != null) {
-      final fireAt = _reminderTime(expiryDate, daysBefore: reminderDaysBefore);
-      if (!fireAt.isBefore(now)) {
-        reminders.add(
-          EsimReminder(
-            id: _notificationId(profile.id, EsimReminderType.expiryThreeDays),
-            profileId: profile.id,
-            type: EsimReminderType.expiryThreeDays,
-            fireAt: fireAt,
-            title:
-                '${profile.name} ${_expiryReminderLabel(reminderDaysBefore)}',
-            body: '这张 eSIM 即将到期，出行前记得续费、切换套餐或准备备用网络。',
-          ),
-        );
-      }
-    }
-
-    if (profile.isDataLow) {
-      reminders.add(
-        EsimReminder(
-          id: _notificationId(profile.id, EsimReminderType.lowData),
-          profileId: profile.id,
-          type: EsimReminderType.lowData,
-          fireAt: now,
-          title: '${profile.name} 流量快用完了',
-          body: '当前套餐流量剩余不足 10%，建议及时充值或切换备用 eSIM。',
-        ),
-      );
-    }
-
-    reminders.sort((a, b) => a.fireAt.compareTo(b.fireAt));
-    return reminders;
-  }
-
-  static String _expiryReminderLabel(int daysBefore) {
-    return switch (daysBefore) {
-      0 => '今天到期',
-      1 => '明天到期',
-      _ => '$daysBefore 天后到期',
-    };
-  }
-
-  static DateTime _reminderTime(
-    DateTime expiryDate, {
-    required int daysBefore,
-  }) {
-    final dateOnly = DateTime(
-      expiryDate.year,
-      expiryDate.month,
-      expiryDate.day,
+    final scheduled = DateTime(
+      nextServiceDate.year,
+      nextServiceDate.month,
+      nextServiceDate.day,
+      9,
     );
-    return dateOnly
-        .subtract(Duration(days: daysBefore))
-        .add(const Duration(hours: 9));
+    final overdue = scheduled.isBefore(now);
+    final fireAt = overdue ? now : scheduled;
+    return <EsimReminder>[
+      EsimReminder(
+        id: _notificationId(profile.id, EsimReminderType.keepAliveConsumption),
+        profileId: profile.id,
+        type: EsimReminderType.keepAliveConsumption,
+        fireAt: fireAt,
+        title: '${profile.name} 该消费保号了',
+        body: overdue
+            ? '这张 eSIM 已经到了保号消费时间。建议现在发短信、充值或产生一次消费，避免号码失效。'
+            : '这张 eSIM 每 $months 个月需要消费一次用于保号。到时记得发短信、充值或产生一次消费。',
+      ),
+    ];
   }
 
   static int _notificationId(String profileId, EsimReminderType type) {

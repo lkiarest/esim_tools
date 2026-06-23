@@ -6,7 +6,6 @@ import 'models/esim_profile.dart';
 import 'repositories/esim_profile_repository.dart';
 import 'services/esim_reminder_scheduler.dart';
 import 'services/installed_esim_discovery.dart';
-import 'services/esim_calendar_service.dart';
 import 'services/esim_json_file_transfer.dart';
 import 'services/esim_profile_json_codec.dart';
 
@@ -304,7 +303,7 @@ class _EsimHomePageState extends State<EsimHomePage> {
           await _addProfile(profile);
           if (!context.mounted) return;
           Navigator.of(context).pop();
-          _showSnackBar('已导入 ${profile.name}，记得补充有效期和流量。');
+          _showSnackBar('已导入 ${profile.name}，记得补充号码和保号消费周期。');
         },
         onManualAdd: () {
           Navigator.of(context).pop();
@@ -519,7 +518,7 @@ class _EsimHomePageState extends State<EsimHomePage> {
             ListTile(
               leading: const Icon(Icons.edit_note),
               title: const Text('手动添加已安装 eSIM'),
-              subtitle: const Text('填写运营商、有效期、流量等信息'),
+              subtitle: const Text('填写运营商、国家/地区、号码和保号周期'),
               onTap: () {
                 Navigator.pop(context);
                 _openManualInstalledForm();
@@ -614,8 +613,8 @@ class _AttentionSection extends StatelessWidget {
             .where((profile) => profile.attentionMessages(now).isNotEmpty)
             .toList()
           ..sort((a, b) {
-            final aDays = a.daysUntilExpiry(now) ?? 9999;
-            final bDays = b.daysUntilExpiry(now) ?? 9999;
+            final aDays = a.daysUntilService(now) ?? 9999;
+            final bDays = b.daysUntilService(now) ?? 9999;
             return aDays.compareTo(bDays);
           });
     if (attentionProfiles.isEmpty) return const SizedBox.shrink();
@@ -787,7 +786,7 @@ class _DiscoveryResultSheet extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            const Text('自动发现的信息可能不完整，导入后请补充有效期、流量和备注。'),
+            const Text('自动发现的信息可能不完整，导入后请补充号码和保号消费周期。'),
             const SizedBox(height: 12),
             ...result.profiles.map(
               (profile) => Card.outlined(
@@ -997,17 +996,13 @@ class _ManualInstalledFormState extends State<_ManualInstalledForm> {
                       rawActivationCode: null,
                       smdpAddress: null,
                       matchingId: null,
-                      dataLimitMb: null,
-                      usedDataMb: null,
-                      activationDate: null,
-                      expiryDate: null,
+                      lastServiceDate: null,
+                      serviceIntervalMonths: 6,
+                      serviceReminderEnabled: false,
                       status: EsimProfileStatus.installed,
                       source: EsimProfileSource.manualInstalled,
                       isCurrentlyActive: _active,
-                      deviceName: null,
-                      devicePlatform: null,
-                      note: '手动添加，后续可补充有效期、流量和号码。',
-                      reminderDaysBefore: 3,
+                      note: '手动添加，可补充最近消费日期和保号周期。',
                       createdAt: now,
                       updatedAt: now,
                     ),
@@ -1046,14 +1041,12 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
   late final TextEditingController _countryController;
   late final TextEditingController _phoneController;
   late final TextEditingController _iccidController;
-  late final TextEditingController _deviceController;
-  late final TextEditingController _dataLimitController;
-  late final TextEditingController _usedDataController;
-  late final TextEditingController _expiryController;
+  late final TextEditingController _lastServiceDateController;
+  late final TextEditingController _serviceIntervalController;
   late final TextEditingController _noteController;
   late EsimProfileStatus _status;
   late bool _active;
-  late int? _reminderDaysBefore;
+  late bool _serviceReminderEnabled;
   bool _showActivationCode = false;
 
   final _formKey = GlobalKey<FormState>();
@@ -1069,20 +1062,16 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
     );
     _phoneController = TextEditingController(text: profile.phoneNumber ?? '');
     _iccidController = TextEditingController(text: profile.iccid ?? '');
-    _deviceController = TextEditingController(text: profile.deviceName ?? '');
-    _dataLimitController = TextEditingController(
-      text: profile.dataLimitMb?.toString() ?? '',
+    _lastServiceDateController = TextEditingController(
+      text: profile.lastServiceDate == null ? '' : _formatDate(profile.lastServiceDate!),
     );
-    _usedDataController = TextEditingController(
-      text: profile.usedDataMb?.toString() ?? '',
-    );
-    _expiryController = TextEditingController(
-      text: profile.expiryDate == null ? '' : _formatDate(profile.expiryDate!),
+    _serviceIntervalController = TextEditingController(
+      text: profile.serviceIntervalMonths?.toString() ?? '6',
     );
     _noteController = TextEditingController(text: profile.note ?? '');
     _status = profile.status;
     _active = profile.isCurrentlyActive;
-    _reminderDaysBefore = profile.reminderDaysBefore;
+    _serviceReminderEnabled = profile.serviceReminderEnabled;
   }
 
   @override
@@ -1092,10 +1081,8 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
     _countryController.dispose();
     _phoneController.dispose();
     _iccidController.dispose();
-    _deviceController.dispose();
-    _dataLimitController.dispose();
-    _usedDataController.dispose();
-    _expiryController.dispose();
+    _lastServiceDateController.dispose();
+    _serviceIntervalController.dispose();
     _noteController.dispose();
     super.dispose();
   }
@@ -1103,6 +1090,7 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
   @override
   Widget build(BuildContext context) {
     final profile = widget.profile;
+    final nextServiceDate = profile.nextServiceDate;
     return Scaffold(
       appBar: AppBar(
         title: const Text('eSIM 详情'),
@@ -1133,7 +1121,7 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
                 title: Text(_sourceLabel(profile.source)),
                 subtitle: Text(
                   profile.rawActivationCode == null
-                      ? '已安装资料可编辑；自动发现结果不一定完整。'
+                      ? '只保留保号常用信息：名称、运营商、国家/地区、号码、ICCID 和消费提醒。'
                       : '激活码、Matching ID、ICCID、手机号会使用系统安全存储保护，并默认隐藏显示。',
                 ),
               ),
@@ -1161,63 +1149,45 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
               controller: _iccidController,
               labelText: 'ICCID',
             ),
-            _copyableTextFormField(
-              controller: _deviceController,
-              labelText: '所属设备',
-            ),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextFormField(
-                    controller: _dataLimitController,
-                    keyboardType: TextInputType.number,
-                    decoration: _copyableDecoration(
-                      _dataLimitController,
-                      '总流量 MB',
+            const SizedBox(height: 12),
+            Card.outlined(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('保号提醒', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    const Text('适合每隔几个月需要消费、充值或发短信一次来保号的卡。'),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('开启保号消费提醒'),
+                      value: _serviceReminderEnabled,
+                      onChanged: (value) => setState(() => _serviceReminderEnabled = value),
                     ),
-                    validator: _optionalIntValidator,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _usedDataController,
-                    keyboardType: TextInputType.number,
-                    decoration: _copyableDecoration(
-                      _usedDataController,
-                      '已用 MB',
+                    _copyableTextFormField(
+                      controller: _lastServiceDateController,
+                      labelText: '最近消费日期 YYYY-MM-DD',
+                      keyboardType: TextInputType.datetime,
+                      validator: _optionalDateValidator,
                     ),
-                    validator: _optionalIntValidator,
-                  ),
+                    TextFormField(
+                      controller: _serviceIntervalController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: '提醒周期（月）'),
+                      validator: (value) {
+                        if (!_serviceReminderEnabled) return null;
+                        final months = int.tryParse(value?.trim() ?? '');
+                        if (months == null || months <= 0) return '请输入大于 0 的月份数，例如 6';
+                        return null;
+                      },
+                    ),
+                    if (nextServiceDate != null) ...<Widget>[
+                      const SizedBox(height: 8),
+                      Text('下次提醒：${_formatDate(nextServiceDate)} 09:00'),
+                    ],
+                  ],
                 ),
-              ],
-            ),
-            _copyableTextFormField(
-              controller: _expiryController,
-              labelText: '到期日 YYYY-MM-DD',
-              keyboardType: TextInputType.datetime,
-              validator: _optionalDateValidator,
-            ),
-            DropdownButtonFormField<int?>(
-              initialValue: _reminderDaysBefore,
-              decoration: const InputDecoration(labelText: '到期提醒'),
-              items: const <DropdownMenuItem<int?>>[
-                DropdownMenuItem(value: null, child: Text('不提醒')),
-                DropdownMenuItem(value: 0, child: Text('到期当天 09:00 提醒')),
-                DropdownMenuItem(value: 1, child: Text('提前 1 天 09:00 提醒')),
-                DropdownMenuItem(value: 3, child: Text('提前 3 天 09:00 提醒')),
-                DropdownMenuItem(value: 7, child: Text('提前 7 天 09:00 提醒')),
-                DropdownMenuItem(value: 15, child: Text('提前 15 天 09:00 提醒')),
-                DropdownMenuItem(value: 30, child: Text('提前 30 天 09:00 提醒')),
-              ],
-              onChanged: (value) => setState(() => _reminderDaysBefore = value),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _addExpiryToCalendar,
-                icon: const Icon(Icons.event_available_outlined),
-                label: const Text('加入系统日程'),
               ),
             ),
             DropdownButtonFormField<EsimProfileStatus>(
@@ -1231,10 +1201,6 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
                 DropdownMenuItem(
                   value: EsimProfileStatus.installed,
                   child: Text('已安装'),
-                ),
-                DropdownMenuItem(
-                  value: EsimProfileStatus.expired,
-                  child: Text('已过期'),
                 ),
                 DropdownMenuItem(
                   value: EsimProfileStatus.archived,
@@ -1344,28 +1310,6 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
     );
   }
 
-  Future<void> _addExpiryToCalendar() async {
-    final expiryDate = _parseOptionalDate(_expiryController.text);
-    if (expiryDate == null) {
-      _showDetailSnackBar('请先填写有效到期日');
-      return;
-    }
-    final success = await EsimCalendarService.addExpiryEvent(
-      profileName: _nameController.text.trim().isEmpty
-          ? 'eSIM'
-          : _nameController.text.trim(),
-      expiryDate: expiryDate,
-    );
-    if (!mounted) return;
-    _showDetailSnackBar(success ? '已打开系统日程，请确认保存' : '当前平台暂不支持自动加入系统日程');
-  }
-
-  void _showDetailSnackBar(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _confirmDelete() async {
     final shouldDelete = await showDialog<bool>(
       context: context,
@@ -1403,17 +1347,15 @@ class _ProfileDetailPageState extends State<_ProfileDetailPage> {
       rawActivationCode: original.rawActivationCode,
       smdpAddress: original.smdpAddress,
       matchingId: original.matchingId,
-      dataLimitMb: _parseOptionalInt(_dataLimitController.text),
-      usedDataMb: _parseOptionalInt(_usedDataController.text),
-      activationDate: original.activationDate,
-      expiryDate: _parseOptionalDate(_expiryController.text),
+      lastServiceDate: _parseOptionalDate(_lastServiceDateController.text),
+      serviceIntervalMonths: _serviceReminderEnabled
+          ? _parseOptionalInt(_serviceIntervalController.text)
+          : null,
+      serviceReminderEnabled: _serviceReminderEnabled,
       status: _status,
       source: original.source,
       isCurrentlyActive: _active,
-      deviceName: _emptyToNull(_deviceController.text),
-      devicePlatform: original.devicePlatform,
       note: _emptyToNull(_noteController.text),
-      reminderDaysBefore: _reminderDaysBefore,
       createdAt: original.createdAt,
       updatedAt: now,
     );
@@ -1438,11 +1380,6 @@ Future<void> _copyText(
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text('已复制$copiedLabel')));
-}
-
-String? _optionalIntValidator(String? value) {
-  if (value == null || value.trim().isEmpty) return null;
-  return int.tryParse(value.trim()) == null ? '请输入整数' : null;
 }
 
 String? _optionalDateValidator(String? value) {

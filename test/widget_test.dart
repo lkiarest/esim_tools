@@ -83,12 +83,12 @@ void main() {
     expect(preferences.getString(EsimProfileRepository.storageKey), '[]');
   });
 
-  testWidgets('home highlights expiring and low-data profiles', (tester) async {
+  testWidgets('home highlights keep-alive consumption reminders', (tester) async {
     final profile = _profile(
-      name: '日本 7 天卡',
-      expiryDate: DateTime.now().add(const Duration(days: 2)),
-      dataLimitMb: 10240,
-      usedDataMb: 9500,
+      name: '日本保号卡',
+      lastServiceDate: DateTime.now().subtract(const Duration(days: 175)),
+      serviceIntervalMonths: 6,
+      serviceReminderEnabled: true,
     );
     SharedPreferences.setMockInitialValues(<String, Object>{
       EsimProfileRepository.storageKey: jsonEncode(<Object?>[profile.toJson()]),
@@ -103,8 +103,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('需要关注'), findsOneWidget);
-    expect(find.textContaining('2 天后到期'), findsWidgets);
-    expect(find.textContaining('流量剩余不足 10%'), findsWidgets);
+    expect(find.textContaining('需要消费保号'), findsWidgets);
   });
 
   testWidgets('activation code is redacted until user asks to reveal it', (
@@ -295,9 +294,9 @@ EsimProfile _profile({
   String? rawActivationCode,
   String? smdpAddress,
   String? matchingId,
-  int? dataLimitMb,
-  int? usedDataMb,
-  DateTime? expiryDate,
+  DateTime? lastServiceDate,
+  int? serviceIntervalMonths = 6,
+  bool serviceReminderEnabled = false,
   EsimProfileStatus status = EsimProfileStatus.installed,
   EsimProfileSource source = EsimProfileSource.manualInstalled,
 }) {
@@ -311,15 +310,12 @@ EsimProfile _profile({
     rawActivationCode: rawActivationCode,
     smdpAddress: smdpAddress,
     matchingId: matchingId,
-    dataLimitMb: dataLimitMb,
-    usedDataMb: usedDataMb,
-    activationDate: null,
-    expiryDate: expiryDate,
+    lastServiceDate: lastServiceDate,
+    serviceIntervalMonths: serviceIntervalMonths,
+    serviceReminderEnabled: serviceReminderEnabled,
     status: status,
     source: source,
     isCurrentlyActive: false,
-    deviceName: null,
-    devicePlatform: null,
     note: null,
     createdAt: DateTime.utc(2026, 6, 1),
     updatedAt: DateTime.utc(2026, 6, 1),

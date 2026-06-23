@@ -21,17 +21,13 @@ class EsimProfile {
     required this.rawActivationCode,
     required this.smdpAddress,
     required this.matchingId,
-    required this.dataLimitMb,
-    required this.usedDataMb,
-    required this.activationDate,
-    required this.expiryDate,
+    required this.lastServiceDate,
+    this.serviceIntervalMonths = 6,
+    this.serviceReminderEnabled = true,
     required this.status,
     required this.source,
     required this.isCurrentlyActive,
-    required this.deviceName,
-    required this.devicePlatform,
     required this.note,
-    this.reminderDaysBefore = 3,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -45,63 +41,64 @@ class EsimProfile {
   final String? rawActivationCode;
   final String? smdpAddress;
   final String? matchingId;
-  final int? dataLimitMb;
-  final int? usedDataMb;
-  final DateTime? activationDate;
-  final DateTime? expiryDate;
+
+  /// 最近一次为保号发生的消费/充值/短信等日期。
+  final DateTime? lastServiceDate;
+
+  /// 保号消费周期（月）；null 表示不提醒。
+  final int? serviceIntervalMonths;
+  final bool serviceReminderEnabled;
+
   final EsimProfileStatus status;
   final EsimProfileSource source;
   final bool isCurrentlyActive;
-  final String? deviceName;
-  final String? devicePlatform;
   final String? note;
-
-  /// 到期日前几天提醒；null 表示不提醒。
-  final int? reminderDaysBefore;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  int? daysUntilExpiry(DateTime now) {
-    if (expiryDate == null) return null;
-    return _dateOnly(expiryDate!).difference(_dateOnly(now)).inDays;
+  DateTime? get nextServiceDate {
+    final last = lastServiceDate;
+    final months = serviceIntervalMonths;
+    if (!serviceReminderEnabled || last == null || months == null || months <= 0) {
+      return null;
+    }
+    return _addMonths(_dateOnly(last), months);
+  }
+
+  int? daysUntilService(DateTime now) {
+    final next = nextServiceDate;
+    if (next == null) return null;
+    return _dateOnly(next).difference(_dateOnly(now)).inDays;
+  }
+
+  bool isServiceDueSoon(DateTime now, {int thresholdDays = 14}) {
+    if (status == EsimProfileStatus.archived) return false;
+    final days = daysUntilService(now);
+    return days != null && days >= 0 && days <= thresholdDays;
+  }
+
+  bool isServiceOverdue(DateTime now) {
+    if (status == EsimProfileStatus.archived) return false;
+    final days = daysUntilService(now);
+    return days != null && days < 0;
   }
 
   EsimProfileStatus effectiveStatus(DateTime now) {
     if (status == EsimProfileStatus.archived) return EsimProfileStatus.archived;
-    final days = daysUntilExpiry(now);
-    if (days != null && days < 0) return EsimProfileStatus.expired;
     return status;
-  }
-
-  bool isExpiringSoon(DateTime now, {int thresholdDays = 3}) {
-    if (effectiveStatus(now) != EsimProfileStatus.installed) return false;
-    final days = daysUntilExpiry(now);
-    return days != null && days >= 0 && days <= thresholdDays;
-  }
-
-  double? get dataUsageRatio {
-    final limit = dataLimitMb;
-    final used = usedDataMb;
-    if (limit == null || limit <= 0 || used == null) return null;
-    return used.clamp(0, limit) / limit;
-  }
-
-  bool get isDataLow {
-    final ratio = dataUsageRatio;
-    return ratio != null && ratio >= 0.9;
   }
 
   List<String> attentionMessages(DateTime now) {
     final messages = <String>[];
-    final effective = effectiveStatus(now);
-    final days = daysUntilExpiry(now);
-    if (effective == EsimProfileStatus.expired) {
-      messages.add('已过期');
-    } else if (isExpiringSoon(now) && days != null) {
-      messages.add(days == 0 ? '今天到期' : '$days 天后到期');
-    }
-    if (isDataLow) {
-      messages.add('流量剩余不足 10%');
+    final days = daysUntilService(now);
+    if (days != null) {
+      if (days < 0) {
+        messages.add('已到保号消费时间');
+      } else if (days == 0) {
+        messages.add('今天需要消费保号');
+      } else if (days <= 14) {
+        messages.add('$days 天后需要消费保号');
+      }
     }
     return messages;
   }
@@ -127,17 +124,13 @@ class EsimProfile {
       rawActivationCode: null,
       smdpAddress: null,
       matchingId: null,
-      dataLimitMb: null,
-      usedDataMb: null,
-      activationDate: null,
-      expiryDate: null,
+      lastServiceDate: null,
+      serviceIntervalMonths: 6,
+      serviceReminderEnabled: false,
       status: EsimProfileStatus.installed,
       source: EsimProfileSource.systemDiscovered,
       isCurrentlyActive: discovered.isActive ?? false,
-      deviceName: null,
-      devicePlatform: discovered.platform,
       note: _noteForDiscovered(discovered),
-      reminderDaysBefore: 3,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
@@ -160,17 +153,13 @@ class EsimProfile {
       rawActivationCode: parsed.raw,
       smdpAddress: parsed.smdpAddress,
       matchingId: parsed.matchingId,
-      dataLimitMb: null,
-      usedDataMb: null,
-      activationDate: null,
-      expiryDate: null,
+      lastServiceDate: null,
+      serviceIntervalMonths: 6,
+      serviceReminderEnabled: false,
       status: EsimProfileStatus.notInstalled,
       source: EsimProfileSource.activationCode,
       isCurrentlyActive: false,
-      deviceName: null,
-      devicePlatform: null,
       note: null,
-      reminderDaysBefore: 3,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
@@ -187,17 +176,13 @@ class EsimProfile {
       rawActivationCode: json['rawActivationCode'] as String?,
       smdpAddress: json['smdpAddress'] as String?,
       matchingId: json['matchingId'] as String?,
-      dataLimitMb: json['dataLimitMb'] as int?,
-      usedDataMb: json['usedDataMb'] as int?,
-      activationDate: _dateFromJson(json['activationDate'] as String?),
-      expiryDate: _dateFromJson(json['expiryDate'] as String?),
+      lastServiceDate: _dateFromJson(json['lastServiceDate'] as String?),
+      serviceIntervalMonths: json['serviceIntervalMonths'] as int? ?? 6,
+      serviceReminderEnabled: json['serviceReminderEnabled'] as bool? ?? false,
       status: _statusFromJson(json['status'] as String?),
       source: _sourceFromJson(json['source'] as String?),
       isCurrentlyActive: json['isCurrentlyActive'] as bool? ?? false,
-      deviceName: json['deviceName'] as String?,
-      devicePlatform: json['devicePlatform'] as String?,
       note: json['note'] as String?,
-      reminderDaysBefore: json['reminderDaysBefore'] as int? ?? 3,
       createdAt: _dateFromJson(json['createdAt'] as String?) ?? DateTime.now(),
       updatedAt: _dateFromJson(json['updatedAt'] as String?) ?? DateTime.now(),
     );
@@ -214,17 +199,13 @@ class EsimProfile {
       'rawActivationCode': rawActivationCode,
       'smdpAddress': smdpAddress,
       'matchingId': matchingId,
-      'dataLimitMb': dataLimitMb,
-      'usedDataMb': usedDataMb,
-      'activationDate': activationDate?.toIso8601String(),
-      'expiryDate': expiryDate?.toIso8601String(),
+      'lastServiceDate': lastServiceDate?.toIso8601String(),
+      'serviceIntervalMonths': serviceIntervalMonths,
+      'serviceReminderEnabled': serviceReminderEnabled,
       'status': status.name,
       'source': source.name,
       'isCurrentlyActive': isCurrentlyActive,
-      'deviceName': deviceName,
-      'devicePlatform': devicePlatform,
       'note': note,
-      'reminderDaysBefore': reminderDaysBefore,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -240,17 +221,13 @@ class EsimProfile {
     String? rawActivationCode,
     String? smdpAddress,
     String? matchingId,
-    int? dataLimitMb,
-    int? usedDataMb,
-    DateTime? activationDate,
-    DateTime? expiryDate,
+    DateTime? lastServiceDate,
+    int? serviceIntervalMonths,
+    bool? serviceReminderEnabled,
     EsimProfileStatus? status,
     EsimProfileSource? source,
     bool? isCurrentlyActive,
-    String? deviceName,
-    String? devicePlatform,
     String? note,
-    int? reminderDaysBefore,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -264,25 +241,31 @@ class EsimProfile {
       rawActivationCode: rawActivationCode ?? this.rawActivationCode,
       smdpAddress: smdpAddress ?? this.smdpAddress,
       matchingId: matchingId ?? this.matchingId,
-      dataLimitMb: dataLimitMb ?? this.dataLimitMb,
-      usedDataMb: usedDataMb ?? this.usedDataMb,
-      activationDate: activationDate ?? this.activationDate,
-      expiryDate: expiryDate ?? this.expiryDate,
+      lastServiceDate: lastServiceDate ?? this.lastServiceDate,
+      serviceIntervalMonths: serviceIntervalMonths ?? this.serviceIntervalMonths,
+      serviceReminderEnabled:
+          serviceReminderEnabled ?? this.serviceReminderEnabled,
       status: status ?? this.status,
       source: source ?? this.source,
       isCurrentlyActive: isCurrentlyActive ?? this.isCurrentlyActive,
-      deviceName: deviceName ?? this.deviceName,
-      devicePlatform: devicePlatform ?? this.devicePlatform,
       note: note ?? this.note,
-      reminderDaysBefore: reminderDaysBefore ?? this.reminderDaysBefore,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }
 
-DateTime _dateOnly(DateTime value) =>
-    DateTime(value.year, value.month, value.day);
+DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+
+DateTime _addMonths(DateTime value, int months) {
+  final targetMonth = value.month + months;
+  final targetYear = value.year + ((targetMonth - 1) ~/ 12);
+  final normalizedMonth = ((targetMonth - 1) % 12) + 1;
+  final day = value.day.clamp(1, _daysInMonth(targetYear, normalizedMonth));
+  return DateTime.utc(targetYear, normalizedMonth, day);
+}
+
+int _daysInMonth(int year, int month) => DateTime.utc(year, month + 1, 0).day;
 
 DateTime? _dateFromJson(String? value) {
   if (value == null || value.isEmpty) return null;
@@ -312,5 +295,5 @@ String _noteForDiscovered(DiscoveredEsim discovered) {
     DiscoveryConfidence.low => '低',
     DiscoveryConfidence.unknown => '未知',
   };
-  return '$esimType，$activeLabel，识别可信度：$confidence。请确认有效期、流量和号码等信息。';
+  return '$esimType，$activeLabel，识别可信度：$confidence。请确认号码和保号消费周期。';
 }

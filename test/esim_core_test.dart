@@ -134,42 +134,43 @@ void main() {
       },
     );
 
-    test(
-      'computes expired status from expiry date without mutating stored status',
-      () {
-        final profile =
-            EsimProfile.fromActivationCode(
-              r'LPA:1$smdp.example.com$MATCHING-ID',
-              now: DateTime.utc(2026, 6, 1),
-            ).copyWith(
-              status: EsimProfileStatus.installed,
-              expiryDate: DateTime.utc(2026, 6, 20),
-            );
+    test('keeps archived status without synthetic expiry logic', () {
+      final profile = EsimProfile.fromActivationCode(
+        r'LPA:1$smdp.example.com$MATCHING-ID',
+        now: DateTime.utc(2026, 6, 1),
+      ).copyWith(status: EsimProfileStatus.archived);
 
-        expect(
-          profile.effectiveStatus(DateTime.utc(2026, 6, 22)),
-          EsimProfileStatus.expired,
-        );
-        expect(profile.status, EsimProfileStatus.installed);
-      },
-    );
+      expect(
+        profile.effectiveStatus(DateTime.utc(2026, 6, 22)),
+        EsimProfileStatus.archived,
+      );
+    });
 
-    test('reports expiring soon and low data usage insights', () {
+    test('reports keep-alive due dates instead of expiry or data usage', () {
       final profile =
           EsimProfile.fromActivationCode(
             r'LPA:1$smdp.example.com$MATCHING-ID',
-            now: DateTime.utc(2026, 6, 1),
+            now: DateTime.utc(2026, 1, 1),
           ).copyWith(
             status: EsimProfileStatus.installed,
-            expiryDate: DateTime.utc(2026, 6, 24),
-            dataLimitMb: 10240,
-            usedDataMb: 9500,
+            lastServiceDate: DateTime.utc(2026, 1, 15),
+            serviceIntervalMonths: 6,
+            serviceReminderEnabled: true,
           );
 
-      expect(profile.daysUntilExpiry(DateTime.utc(2026, 6, 22)), 2);
-      expect(profile.isExpiringSoon(DateTime.utc(2026, 6, 22)), isTrue);
-      expect(profile.dataUsageRatio, closeTo(0.927, 0.001));
-      expect(profile.isDataLow, isTrue);
+      expect(profile.nextServiceDate, DateTime.utc(2026, 7, 15));
+      expect(profile.daysUntilService(DateTime.utc(2026, 7, 10)), 5);
+      expect(
+        profile.attentionMessages(DateTime.utc(2026, 7, 10)),
+        contains('5 天后需要消费保号'),
+      );
+      expect(
+        profile.attentionMessages(DateTime.utc(2026, 7, 16)),
+        contains('已到保号消费时间'),
+      );
+      expect(profile.toJson().keys, isNot(contains('expiryDate')));
+      expect(profile.toJson().keys, isNot(contains('dataLimitMb')));
+      expect(profile.toJson().keys, isNot(contains('deviceName')));
     });
   });
 }

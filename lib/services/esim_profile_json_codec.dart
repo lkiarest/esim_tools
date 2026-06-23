@@ -60,15 +60,18 @@ class EsimProfileJsonCodec {
     if (name is! String || name.trim().isEmpty) {
       throw FormatException('$row 缺少 name');
     }
-    for (final field in <String>['dataLimitMb', 'usedDataMb', 'reminderDaysBefore']) {
+    for (final field in <String>['serviceIntervalMonths']) {
       final value = json[field];
       if (value != null && value is! int) {
         throw FormatException('$row 的 $field 必须是整数或 null');
       }
     }
+    final serviceReminderEnabled = json['serviceReminderEnabled'];
+    if (serviceReminderEnabled != null && serviceReminderEnabled is! bool) {
+      throw FormatException('$row 的 serviceReminderEnabled 必须是布尔值');
+    }
     for (final field in <String>[
-      'activationDate',
-      'expiryDate',
+      'lastServiceDate',
       'createdAt',
       'updatedAt',
     ]) {

@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.CalendarContract
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.euicc.EuiccManager
@@ -19,7 +18,6 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "esim_tool/installed_esim_discovery"
-    private val calendarChannelName = "esim_tool/calendar"
     private val jsonFileChannelName = "esim_tool/json_file_transfer"
     private val phoneStateRequestCode = 2401
     private val importJsonRequestCode = 2402
@@ -34,12 +32,6 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "discoverInstalledEsims" -> discoverInstalledEsims(result)
-                else -> result.notImplemented()
-            }
-        }
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, calendarChannelName).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "addExpiryEvent" -> addExpiryEvent(call.arguments as? Map<*, *>, result)
                 else -> result.notImplemented()
             }
         }
@@ -135,32 +127,6 @@ class MainActivity : FlutterActivity() {
             result.success(true)
         } catch (error: Exception) {
             result.error("write_failed", error.localizedMessage, null)
-        }
-    }
-
-
-    private fun addExpiryEvent(arguments: Map<*, *>?, result: MethodChannel.Result) {
-        val profileName = arguments?.get("profileName") as? String ?: "eSIM"
-        val expiryDateMillis = arguments?.get("expiryDateMillis") as? Long
-        if (expiryDateMillis == null) {
-            result.success(false)
-            return
-        }
-        val beginTime = expiryDateMillis + 9L * 60L * 60L * 1000L
-        val endTime = beginTime + 30L * 60L * 1000L
-        val intent = Intent(Intent.ACTION_INSERT).apply {
-            data = CalendarContract.Events.CONTENT_URI
-            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTime)
-            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTime)
-            putExtra(CalendarContract.Events.TITLE, "$profileName eSIM 到期")
-            putExtra(CalendarContract.Events.DESCRIPTION, "这张 eSIM 今天到期，记得续费、切换套餐或准备备用网络。")
-            putExtra(CalendarContract.Events.ALL_DAY, false)
-        }
-        return try {
-            startActivity(intent)
-            result.success(true)
-        } catch (_: Exception) {
-            result.success(false)
         }
     }
 
