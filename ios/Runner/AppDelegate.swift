@@ -84,6 +84,7 @@ import UIKit
       "mobileNetworkCode": carrier.mobileNetworkCode,
       "phoneNumber": nil,
       "iccid": nil,
+      "systemIdentifier": serviceIdentifier.map { "ios-service-\($0)" },
       "isEmbedded": nil,
       "isActive": isActive,
       "platform": "ios",

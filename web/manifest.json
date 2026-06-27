@@ -1,6 +1,6 @@
 {
-    "name": "esim_tool",
-    "short_name": "esim_tool",
+    "name": "ESIM 管家",
+    "short_name": "ESIM 管家",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

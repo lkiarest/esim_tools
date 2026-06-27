@@ -18,6 +18,7 @@ class EsimProfile {
     required this.countryOrRegion,
     required this.phoneNumber,
     required this.iccid,
+    this.systemIdentifier,
     required this.rawActivationCode,
     required this.smdpAddress,
     required this.matchingId,
@@ -38,6 +39,7 @@ class EsimProfile {
   final String? countryOrRegion;
   final String? phoneNumber;
   final String? iccid;
+  final String? systemIdentifier;
   final String? rawActivationCode;
   final String? smdpAddress;
   final String? matchingId;
@@ -59,7 +61,10 @@ class EsimProfile {
   DateTime? get nextServiceDate {
     final last = lastServiceDate;
     final months = serviceIntervalMonths;
-    if (!serviceReminderEnabled || last == null || months == null || months <= 0) {
+    if (!serviceReminderEnabled ||
+        last == null ||
+        months == null ||
+        months <= 0) {
       return null;
     }
     return _addMonths(_dateOnly(last), months);
@@ -121,6 +126,7 @@ class EsimProfile {
       countryOrRegion: discovered.countryIso?.toUpperCase(),
       phoneNumber: discovered.phoneNumber,
       iccid: discovered.iccid,
+      systemIdentifier: discovered.systemIdentifier,
       rawActivationCode: null,
       smdpAddress: null,
       matchingId: null,
@@ -130,7 +136,7 @@ class EsimProfile {
       status: EsimProfileStatus.installed,
       source: EsimProfileSource.systemDiscovered,
       isCurrentlyActive: discovered.isActive ?? false,
-      note: _noteForDiscovered(discovered),
+      note: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
@@ -150,6 +156,7 @@ class EsimProfile {
       countryOrRegion: null,
       phoneNumber: null,
       iccid: null,
+      systemIdentifier: null,
       rawActivationCode: parsed.raw,
       smdpAddress: parsed.smdpAddress,
       matchingId: parsed.matchingId,
@@ -173,6 +180,7 @@ class EsimProfile {
       countryOrRegion: json['countryOrRegion'] as String?,
       phoneNumber: json['phoneNumber'] as String?,
       iccid: json['iccid'] as String?,
+      systemIdentifier: json['systemIdentifier'] as String?,
       rawActivationCode: json['rawActivationCode'] as String?,
       smdpAddress: json['smdpAddress'] as String?,
       matchingId: json['matchingId'] as String?,
@@ -196,6 +204,7 @@ class EsimProfile {
       'countryOrRegion': countryOrRegion,
       'phoneNumber': phoneNumber,
       'iccid': iccid,
+      'systemIdentifier': systemIdentifier,
       'rawActivationCode': rawActivationCode,
       'smdpAddress': smdpAddress,
       'matchingId': matchingId,
@@ -218,6 +227,7 @@ class EsimProfile {
     String? countryOrRegion,
     String? phoneNumber,
     String? iccid,
+    String? systemIdentifier,
     String? rawActivationCode,
     String? smdpAddress,
     String? matchingId,
@@ -238,11 +248,13 @@ class EsimProfile {
       countryOrRegion: countryOrRegion ?? this.countryOrRegion,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       iccid: iccid ?? this.iccid,
+      systemIdentifier: systemIdentifier ?? this.systemIdentifier,
       rawActivationCode: rawActivationCode ?? this.rawActivationCode,
       smdpAddress: smdpAddress ?? this.smdpAddress,
       matchingId: matchingId ?? this.matchingId,
       lastServiceDate: lastServiceDate ?? this.lastServiceDate,
-      serviceIntervalMonths: serviceIntervalMonths ?? this.serviceIntervalMonths,
+      serviceIntervalMonths:
+          serviceIntervalMonths ?? this.serviceIntervalMonths,
       serviceReminderEnabled:
           serviceReminderEnabled ?? this.serviceReminderEnabled,
       status: status ?? this.status,
@@ -255,7 +267,8 @@ class EsimProfile {
   }
 }
 
-DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
 
 DateTime _addMonths(DateTime value, int months) {
   final targetMonth = value.month + months;
@@ -284,16 +297,4 @@ EsimProfileSource _sourceFromJson(String? value) {
     (source) => source.name == value,
     orElse: () => EsimProfileSource.manualInstalled,
   );
-}
-
-String _noteForDiscovered(DiscoveredEsim discovered) {
-  final esimType = discovered.isEmbedded == true ? '系统识别为 eSIM' : '系统蜂窝套餐';
-  final activeLabel = discovered.isActive == false ? '未启用/系统可见' : '当前启用';
-  final confidence = switch (discovered.confidence) {
-    DiscoveryConfidence.high => '高',
-    DiscoveryConfidence.medium => '中',
-    DiscoveryConfidence.low => '低',
-    DiscoveryConfidence.unknown => '未知',
-  };
-  return '$esimType，$activeLabel，识别可信度：$confidence。请确认号码和保号消费周期。';
 }

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.telephony.euicc.EuiccManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -131,11 +132,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun discoverInstalledEsims(result: MethodChannel.Result) {
-        if (!hasPhoneStatePermission()) {
+        if (!hasRequiredPhonePermissions()) {
             pendingDiscoveryResult = result
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(Manifest.permission.READ_PHONE_STATE),
+                requiredPhonePermissions().toTypedArray(),
                 phoneStateRequestCode,
             )
             return
@@ -153,7 +154,7 @@ class MainActivity : FlutterActivity() {
 
         val result = pendingDiscoveryResult ?: return
         pendingDiscoveryResult = null
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+        if (hasRequiredPhonePermissions()) {
             result.success(buildDiscoveryResult())
         } else {
             result.success(
@@ -173,6 +174,27 @@ class MainActivity : FlutterActivity() {
             this,
             Manifest.permission.READ_PHONE_STATE,
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasPhoneNumbersPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_PHONE_NUMBERS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requiredPhonePermissions(): List<String> {
+        return buildList {
+            if (!hasPhoneStatePermission()) add(Manifest.permission.READ_PHONE_STATE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !hasPhoneNumbersPermission()) {
+                add(Manifest.permission.READ_PHONE_NUMBERS)
+            }
+        }
+    }
+
+    private fun hasRequiredPhonePermissions(): Boolean {
+        return hasPhoneStatePermission() && hasPhoneNumbersPermission()
     }
 
     private fun supportsEsim(): Boolean {
@@ -234,13 +256,42 @@ class MainActivity : FlutterActivity() {
             "countryIso" to countryIso,
             "mobileCountryCode" to mccCompat(),
             "mobileNetworkCode" to mncCompat(),
-            "phoneNumber" to number.takeIf { it.isNotBlank() },
+            "phoneNumber" to bestEffortPhoneNumber(),
             "iccid" to iccId.takeIf { it.isNotBlank() },
+            "systemIdentifier" to "android-subscription-$subscriptionId",
             "isEmbedded" to embedded,
             "isActive" to isActive,
             "platform" to "android",
             "confidence" to confidence,
         )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun SubscriptionInfo.bestEffortPhoneNumber(): String? {
+        val subscriptionManager = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+        val candidates = mutableListOf<String?>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                candidates.add(subscriptionManager?.getPhoneNumber(subscriptionId))
+            } catch (_: Exception) {
+                // Some devices/carriers still deny or cannot provide the number.
+            }
+        }
+
+        candidates.add(number)
+
+        try {
+            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            candidates.add(telephonyManager?.createForSubscriptionId(subscriptionId)?.line1Number)
+        } catch (_: Exception) {
+            // Deprecated fallback; best effort only.
+        }
+
+        return candidates
+            .asSequence()
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
     }
 
     @Suppress("UNCHECKED_CAST")

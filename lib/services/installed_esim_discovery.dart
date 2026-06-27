@@ -19,6 +19,7 @@ class DiscoveredEsim {
     required this.mobileNetworkCode,
     required this.phoneNumber,
     required this.iccid,
+    this.systemIdentifier,
     required this.isEmbedded,
     required this.isActive,
     required this.platform,
@@ -32,6 +33,7 @@ class DiscoveredEsim {
   final String? mobileNetworkCode;
   final String? phoneNumber;
   final String? iccid;
+  final String? systemIdentifier;
   final bool? isEmbedded;
   final bool? isActive;
   final String platform;
@@ -46,6 +48,7 @@ class DiscoveredEsim {
       mobileNetworkCode: map['mobileNetworkCode'] as String?,
       phoneNumber: map['phoneNumber'] as String?,
       iccid: map['iccid'] as String?,
+      systemIdentifier: map['systemIdentifier'] as String?,
       isEmbedded: map['isEmbedded'] as bool?,
       isActive: map['isActive'] as bool?,
       platform: map['platform'] as String? ?? 'unknown',
