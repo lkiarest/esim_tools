@@ -11,6 +11,16 @@ ESIM 管家是一个用于管理 SIM / eSIM 信息的 Flutter 应用，重点解
 - JSON 整表导入 / 导出，方便备份、迁移和批量编辑。
 - 敏感字段本地安全存储：手机号、ICCID、激活码、Matching ID 不直接写入普通偏好存储。
 
+## 界面预览
+
+| 首页列表 | 添加入口 |
+| --- | --- |
+| <img src="esim_imgs/1.png" alt="ESIM 管家首页列表" width="240"> | <img src="esim_imgs/2.png" alt="添加 SIM / eSIM 的操作面板" width="240"> |
+
+| 导入 / 导出 | 自动发现 |
+| --- | --- |
+| <img src="esim_imgs/3.png" alt="JSON 导入导出操作面板" width="240"> | <img src="esim_imgs/4.png" alt="自动发现已安装 eSIM 列表" width="240"> |
+
 ## 使用说明
 
 ### 添加 SIM / eSIM
