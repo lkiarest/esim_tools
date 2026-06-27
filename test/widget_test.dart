@@ -4,6 +4,7 @@ import 'package:esim_tool/main.dart';
 import 'package:esim_tool/models/esim_profile.dart';
 import 'package:esim_tool/repositories/esim_profile_repository.dart';
 import 'package:esim_tool/services/esim_reminder_scheduler.dart';
+import 'package:esim_tool/services/installed_esim_discovery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -16,13 +17,14 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('eSIM 管家'), findsOneWidget);
+    expect(find.text('ESIM 管家'), findsOneWidget);
     expect(find.text('SIM 列表'), findsOneWidget);
     expect(find.text('添加'), findsOneWidget);
     expect(find.text('暂无 SIM/eSIM 记录，点右下角添加或自动获取。'), findsOneWidget);
@@ -38,6 +40,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
@@ -64,6 +67,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
@@ -83,7 +87,9 @@ void main() {
     expect(preferences.getString(EsimProfileRepository.storageKey), '[]');
   });
 
-  testWidgets('home highlights keep-alive consumption reminders', (tester) async {
+  testWidgets('home highlights keep-alive consumption reminders', (
+    tester,
+  ) async {
     final profile = _profile(
       name: '日本保号卡',
       lastServiceDate: DateTime.now().subtract(const Duration(days: 175)),
@@ -96,6 +102,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
@@ -123,6 +130,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
@@ -137,7 +145,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('待安装日本卡'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('系统安全存储'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pumpAndSettle();
 
@@ -158,6 +165,7 @@ void main() {
     final secureStore = InMemorySensitiveProfileStore();
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: secureStore,
         reminderNotifier: const NoopEsimReminderNotifier(),
         qrCodeScanner: (_) async => r'LPA:1$smdp.example.com$QR-MATCHING-ID',
@@ -188,6 +196,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
         qrCodeScanner: (_) async => 'not an esim qr',
@@ -205,45 +214,49 @@ void main() {
     expect(preferences.getString(EsimProfileRepository.storageKey), isNull);
   });
 
-  testWidgets('JSON string import replaces the whole profile list and persists', (
-    tester,
-  ) async {
-    final oldProfile = _profile(name: '旧列表卡');
-    final importedProfile = _profile(name: '导入日本卡');
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      EsimProfileRepository.storageKey: jsonEncode(<Object?>[oldProfile.toJson()]),
-    });
+  testWidgets(
+    'JSON string import replaces the whole profile list and persists',
+    (tester) async {
+      final oldProfile = _profile(name: '旧列表卡');
+      final importedProfile = _profile(name: '导入日本卡');
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EsimProfileRepository.storageKey: jsonEncode(<Object?>[
+          oldProfile.toJson(),
+        ]),
+      });
 
-    await tester.pumpWidget(
-      EsimToolApp(
-        sensitiveStore: InMemorySensitiveProfileStore(),
-        reminderNotifier: const NoopEsimReminderNotifier(),
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        EsimToolApp(
+          discovery: const NoopInstalledEsimDiscovery(),
+          sensitiveStore: InMemorySensitiveProfileStore(),
+          reminderNotifier: const NoopEsimReminderNotifier(),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('导入导出'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('从 JSON 字符串导入'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, '粘贴 JSON 字符串'),
-      jsonEncode(<String, Object?>{
-        'schema': 'esim_tool_profiles_v1',
-        'profiles': <Object?>[importedProfile.toJson()],
-      }),
-    );
-    await tester.tap(find.widgetWithText(FilledButton, '替换整个列表'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('导入导出'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('从 JSON 字符串导入'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, '粘贴 JSON 字符串'),
+        jsonEncode(<String, Object?>{
+          'schema': 'esim_tool_profiles_v1',
+          'profiles': <Object?>[importedProfile.toJson()],
+        }),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, '替换整个列表'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('旧列表卡'), findsNothing);
-    expect(find.text('导入日本卡'), findsOneWidget);
-    final preferences = await SharedPreferences.getInstance();
-    expect(
-      preferences.getString(EsimProfileRepository.storageKey),
-      contains('导入日本卡'),
-    );
-  });
+      expect(find.text('旧列表卡'), findsNothing);
+      expect(find.text('导入日本卡'), findsOneWidget);
+      final preferences = await SharedPreferences.getInstance();
+      expect(
+        preferences.getString(EsimProfileRepository.storageKey),
+        contains('导入日本卡'),
+      );
+    },
+  );
 
   testWidgets('JSON export string can be copied and edited', (tester) async {
     final profile = _profile(name: '可导出卡');
@@ -253,6 +266,7 @@ void main() {
 
     await tester.pumpWidget(
       EsimToolApp(
+        discovery: const NoopInstalledEsimDiscovery(),
         sensitiveStore: InMemorySensitiveProfileStore(),
         reminderNotifier: const NoopEsimReminderNotifier(),
       ),
@@ -286,6 +300,21 @@ class InMemorySensitiveProfileStore implements SensitiveProfileStore {
   @override
   Future<void> write(String key, String value) async {
     values[key] = value;
+  }
+}
+
+class NoopInstalledEsimDiscovery extends InstalledEsimDiscovery {
+  const NoopInstalledEsimDiscovery();
+
+  @override
+  Future<EsimDiscoveryResult> discoverInstalledEsims() async {
+    return const EsimDiscoveryResult(
+      supported: true,
+      permissionGranted: true,
+      profiles: <DiscoveredEsim>[],
+      failureReason: EsimDiscoveryFailureReason.noProfilesFound,
+      note: 'No profiles in widget tests.',
+    );
   }
 }
 

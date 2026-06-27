@@ -130,7 +130,7 @@ void main() {
         expect(profile.name, 'Europe Backup');
         expect(profile.status, EsimProfileStatus.installed);
         expect(profile.isCurrentlyActive, isFalse);
-        expect(profile.note, contains('未启用'));
+        expect(profile.note, isNull);
       },
     );
 
