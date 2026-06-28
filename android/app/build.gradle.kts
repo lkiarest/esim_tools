@@ -7,8 +7,9 @@ plugins {
 
 android {
     namespace = "com.qintx.esim_tool"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Newer Android plugins in this app require SDK 36 metadata.
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -22,8 +23,7 @@ android {
 
     defaultConfig {
         applicationId = "com.qintx.esim_tool"
-        // Keep the test APK installable on older spare Android phones when possible.
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

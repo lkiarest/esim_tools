@@ -83,7 +83,7 @@ class FlutterLocalEsimReminderNotifier implements EsimReminderNotifier {
         requestSoundPermission: false,
       ),
     );
-    await _plugin.initialize(settings: settings);
+    await _plugin.initialize(settings);
     _initialized = true;
   }
 
@@ -115,11 +115,7 @@ class FlutterLocalEsimReminderNotifier implements EsimReminderNotifier {
   @override
   Future<void> cancelAll() async {
     await initialize();
-    try {
-      await _plugin.cancelAllPendingNotifications();
-    } on UnimplementedError {
-      await _plugin.cancelAll();
-    }
+    await _plugin.cancelAll();
   }
 
   @override
@@ -127,11 +123,13 @@ class FlutterLocalEsimReminderNotifier implements EsimReminderNotifier {
     await initialize();
     await _requestPermissions();
     await _plugin.zonedSchedule(
-      id: reminder.id,
-      title: reminder.title,
-      body: reminder.body,
-      scheduledDate: tz.TZDateTime.from(reminder.fireAt, tz.local),
-      notificationDetails: _notificationDetails,
+      reminder.id,
+      reminder.title,
+      reminder.body,
+      tz.TZDateTime.from(reminder.fireAt, tz.local),
+      _notificationDetails,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       payload: reminder.profileId,
     );

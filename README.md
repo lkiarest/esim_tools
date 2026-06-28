@@ -197,3 +197,17 @@ Release 下载地址：
 ```text
 https://github.com/lkiarest/esim_tools/releases
 ```
+
+## iOS 上架准备
+
+iOS App Store 上架准备文档已整理在：
+
+- `docs/ios-app-store-release-checklist.md`
+- `docs/ios-app-store-connect-template.md`
+- `docs/privacy-policy.md`
+
+本地构建 `ipa` 可使用：
+
+```bash
+scripts/build_ios_release.sh
+```

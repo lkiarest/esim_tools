@@ -25,13 +25,19 @@ RELEASE_NAME="eSIM Tool ${TAG}"
 DIST_DIR="$ROOT_DIR/dist"
 APK_NAME="esim-tool-${TAG}.apk"
 APK_PATH="$DIST_DIR/$APK_NAME"
+ANDROID_TARGET_PLATFORM="${ANDROID_TARGET_PLATFORM:-android-arm64}"
 
 mkdir -p "$DIST_DIR"
 
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --release --build-name "$VERSION" --build-number "${BUILD_NUMBER:0:10}"
+# Flutter 3.27.1 on this Intel macOS host fails while generating the
+# armeabi-v7a release snapshot, so default to the arm64 ABI that we verified.
+flutter build apk --release \
+  --target-platform "$ANDROID_TARGET_PLATFORM" \
+  --build-name "$VERSION" \
+  --build-number "${BUILD_NUMBER:0:10}"
 
 cp "$ROOT_DIR/build/app/outputs/flutter-apk/app-release.apk" "$APK_PATH"
 
@@ -39,6 +45,7 @@ cat > "$DIST_DIR/release-notes-${TAG}.md" <<EOF
 Android APK for eSIM Tool.
 
 - Build variant: release
+- Target ABI: ${ANDROID_TARGET_PLATFORM}
 - Signing: Android debug signing config with v2/v3 signatures, for ad-hoc testing/install only
 - Install note: if an older test build was installed from a previous GitHub Action release, uninstall it once first because those old builds used a different temporary debug certificate
 - Source tag: ${TAG}
